@@ -49,6 +49,8 @@ A missing file is a clear `FAIL` (`File not found: ...`, exit code 1) — never 
 ## What it checks
 
 - **Format + dimensions** — parsed from PNG (`IHDR`) or JPEG (`SOF0/SOF2`) headers using only `struct`; works with no PIL installed.
+- **Image integrity** — a header alone never passes: the file's data must actually be there and decode. With PIL installed it must fully verify + load; without PIL, a stdlib structural walk runs instead (PNG: IHDR + IDAT + IEND with valid chunk CRCs and a pixel stream that decompresses to the size the header promises; JPEG: SOI + SOF + SOS + EOI). Corrupt or truncated data is a `FAIL` ("image data corrupt or truncated"), and zero width/height is a `FAIL` too.
+- **Extension match** — WARN when the file extension disagrees with the actual format (e.g. JPEG data in a `.png` file).
 - **Resolution** — PASS at or above 1280×720 (orientation-aware: 720×1280 portrait passes too), WARN below it.
 - **Aspect ratio** — PASS for 16:9 (landscape / YouTube) or 9:16 (vertical / Shorts), WARN for anything else.
 - **File size** — FAIL over the 10 MB YouTube limit, WARN over 2 MB.
@@ -61,9 +63,11 @@ Verdict is the worst check: any FAIL → `FAIL`, else any WARN → `WARN`, else 
 
 ```bash
 python3 -m unittest discover -s tests -v
-# 7 tests: tests generate real PNGs with stdlib struct/zlib (no fixtures,
+# 23 tests: tests generate real PNGs with stdlib struct/zlib (no fixtures,
 # no PIL), check the PASS path, the WARN path, vertical 9:16, a hand-built
-# JPEG header parse, and the missing-file error
+# JPEG header parse, and the missing-file error — plus corrupt/truncated/
+# header-only fixtures, zero dimensions, and extension mismatches, each in
+# both PIL-present and simulated PIL-absent modes
 ```
 
 ## Privacy
