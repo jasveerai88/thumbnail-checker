@@ -1,8 +1,11 @@
+import io
+import json
 import struct
 import sys
 import unittest
 import unittest.mock as mock
 import zlib
+from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
 import tempfile
 
@@ -306,8 +309,84 @@ class TestThumbnailChecker(unittest.TestCase):
         p = self._write("gif-file-thumbnail.png", b"GIF89a" + b"\x01\x00\x01\x00" + b"\x00" * 40)
         self.assertEqual(check(str(p))["verdict"], "FAIL")
 
-    def test_version_is_011(self):
-        self.assertEqual(__version__, "0.1.1")
+    def test_version_is_020(self):
+        self.assertEqual(__version__, "0.2.0")
+
+
+class TestJsonMode(unittest.TestCase):
+    """v0.2.0 agent-ready mode: --json emits one JSON object whose
+    verdict agrees with human mode; corrupt files still FAIL."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.dir = Path(self.tmp.name)
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def _write(self, name: str, data: bytes) -> Path:
+        p = self.dir / name
+        p.write_bytes(data)
+        return p
+
+    def _run_json(self, argv):
+        out = io.StringIO()
+        with redirect_stdout(out), redirect_stderr(io.StringIO()):
+            code = main(argv)
+        return code, json.loads(out.getvalue())
+
+    def test_json_pass_parses_and_agrees(self):
+        p = self._write("my-great-thumbnail.png", make_png(1280, 720))
+        code, data = self._run_json([str(p), "--json"])
+        self.assertEqual(code, 0)
+        self.assertEqual(data["tool"], "thumbnail-checker")
+        self.assertEqual(data["version"], __version__)
+        self.assertEqual(data["verdict"], check(str(p))["verdict"])
+        self.assertEqual(data["verdict"], "PASS")
+        self.assertEqual(data["width"], 1280)
+        self.assertEqual(data["height"], 720)
+        self.assertEqual(data["format"], "PNG")
+        self.assertTrue(data["checks"])
+        for c in data["checks"]:
+            self.assertIn("name", c)
+            self.assertIn("status", c)
+            self.assertIn("message", c)
+        self.assertEqual(data["warnings"], [])
+        self.assertEqual(data["failures"], [])
+
+    def test_json_warn_agrees_and_lists_warnings(self):
+        p = self._write("small thumb.png", make_png(320, 240))
+        code, data = self._run_json([str(p), "--json"])
+        self.assertEqual(code, 0)  # WARN still exits 0, as in human mode
+        self.assertEqual(data["verdict"], "WARN")
+        self.assertEqual(data["verdict"], check(str(p))["verdict"])
+        warn_msgs = [c["message"] for c in data["checks"]
+                     if c["status"] == "WARN"]
+        self.assertTrue(warn_msgs)
+        self.assertEqual(data["warnings"], warn_msgs)
+
+    def test_json_corrupt_still_fails_exit1(self):
+        p = self._write("header-only-thumbnail.png", make_png_header_only())
+        code, data = self._run_json([str(p), "--json"])
+        self.assertEqual(code, 1)
+        self.assertEqual(data["verdict"], "FAIL")
+        self.assertTrue(data["failures"])
+        self.assertIn("corrupt or truncated", " ".join(data["failures"]))
+
+    def test_json_missing_file_is_json_fail_not_traceback(self):
+        code, data = self._run_json([str(self.dir / "nope.png"), "--json"])
+        self.assertEqual(code, 1)
+        self.assertEqual(data["verdict"], "FAIL")
+        self.assertFalse(data["exists"])
+
+    def test_json_usage_error_is_json_object_exit2(self):
+        out = io.StringIO()
+        with redirect_stdout(out), redirect_stderr(io.StringIO()):
+            with self.assertRaises(SystemExit) as cm:
+                main(["--json"])  # missing required file argument
+        self.assertEqual(cm.exception.code, 2)
+        data = json.loads(out.getvalue())
+        self.assertIn("error", data)
 
 
 if __name__ == "__main__":

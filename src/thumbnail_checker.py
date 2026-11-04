@@ -20,6 +20,7 @@ Stdlib only for the core. No network, no uploads.
 from __future__ import annotations
 
 import argparse
+import json
 import math
 import re
 import struct
@@ -27,7 +28,7 @@ import sys
 import zlib
 from pathlib import Path
 
-__version__ = "0.1.1"
+__version__ = "0.2.0"
 
 YT_MIN_W, YT_MIN_H = 1280, 720
 MAX_SIZE_BYTES = 10 * 1024 * 1024   # YouTube thumbnail limit
@@ -378,11 +379,65 @@ def format_result(r: dict) -> str:
     return "\n".join(lines)
 
 
+def result_as_json(r: dict) -> dict:
+    """The check() result as one JSON-ready object for --json mode.
+
+    Mirrors exactly what format_result() shows a human: the same
+    verdict, every check with its status and message, and the WARN /
+    FAIL messages lifted into warnings / failures lists. A FAIL is
+    never softened and a SKIP is never dressed up as a PASS.
+    """
+    return {
+        "tool": "thumbnail-checker",
+        "version": __version__,
+        "file": r["path"],
+        "exists": r["exists"],
+        "verdict": r["verdict"],
+        "width": r["width"],
+        "height": r["height"],
+        "format": r["format"],
+        "size_bytes": r["size_bytes"],
+        "checks": [
+            {"name": name, "status": status, "message": msg}
+            for name, status, msg in r["checks"]
+        ],
+        "warnings": [msg for _, s, msg in r["checks"] if s == "WARN"],
+        "failures": [msg for _, s, msg in r["checks"] if s == "FAIL"],
+    }
+
+
+class _JsonAwareParser(argparse.ArgumentParser):
+    """ArgumentParser that reports usage errors as JSON in --json mode
+    ({"error": ...} on stdout, same exit code 2) — an agent driving
+    this tool with --json never gets plain text or a traceback."""
+
+    json_mode = False
+
+    def error(self, message):
+        if self.json_mode:
+            print(json.dumps({"error": message}))
+            self.exit(2)
+        super().error(message)
+
+
 def main(argv=None) -> int:
-    ap = argparse.ArgumentParser(description="Check a thumbnail image (stdlib first, PIL optional).")
+    argv = sys.argv[1:] if argv is None else argv
+    ap = _JsonAwareParser(description="Check a thumbnail image (stdlib first, PIL optional).")
+    ap.json_mode = "--json" in argv
     ap.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
+    ap.add_argument("--json", action="store_true",
+                    help="Print one JSON object (verdict, checks, warnings) "
+                         "instead of the human-readable report")
     ap.add_argument("file", help="Path to a PNG or JPEG thumbnail")
     args = ap.parse_args(argv)
+    if args.json:
+        try:
+            result = check(args.file)
+        except Exception as exc:  # unreadable file etc. — JSON, never a traceback
+            print(json.dumps({"error": f"could not check file: {exc}"}))
+            return 1
+        print(json.dumps(result_as_json(result), indent=2))
+        return 1 if result["verdict"] == "FAIL" else 0
     result = check(args.file)
     print(format_result(result))
     return 1 if result["verdict"] == "FAIL" else 0

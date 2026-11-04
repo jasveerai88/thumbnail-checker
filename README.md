@@ -59,11 +59,21 @@ A missing file is a clear `FAIL` (`File not found: ...`, exit code 1) — never 
 
 Verdict is the worst check: any FAIL → `FAIL`, else any WARN → `WARN`, else `PASS`. Exit code is 1 only on FAIL, so it can gate an upload script.
 
+## Use with AI agents
+
+Driving this from a coding agent (Claude Code, Codex, …)? Add `--json`:
+stdout becomes one JSON object with the verdict, the real dimensions
+and format, every check as `{name, status, message}`, and the WARN /
+FAIL messages lifted into `warnings` / `failures` lists. Errors in
+`--json` mode are JSON too — `{"error": "..."}` — never a traceback.
+Full brief for agents, including the JSON schema and exit codes:
+[SKILL.md](SKILL.md).
+
 ## Tests
 
 ```bash
 python3 -m unittest discover -s tests -v
-# 23 tests: tests generate real PNGs with stdlib struct/zlib (no fixtures,
+# 28 tests: tests generate real PNGs with stdlib struct/zlib (no fixtures,
 # no PIL), check the PASS path, the WARN path, vertical 9:16, a hand-built
 # JPEG header parse, and the missing-file error — plus corrupt/truncated/
 # header-only fixtures, zero dimensions, and extension mismatches, each in
