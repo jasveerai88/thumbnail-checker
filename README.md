@@ -1,3 +1,5 @@
+> **Merged into [Faceless QC Lite](https://github.com/jasveerai88/faceless-qc-lite)** — as of v2.0.0 this tool ships inside the Faceless QC Lite pre-upload suite: same checks, byte-identical engine, plus one combined `suite` run across all six checks. This repo stays public for existing links; development continues there. Install the suite: `pipx install faceless-qc-lite`
+
 # thumbnail-checker
 
 **Check a thumbnail before YouTube crops, blurs or rejects it.** thumbnail-checker reads a PNG or JPEG's real dimensions straight from the file header — no image library, no install — and reports: resolution, aspect ratio, file size, and filename SEO, each as PASS / WARN / FAIL with a plain-English reason.
